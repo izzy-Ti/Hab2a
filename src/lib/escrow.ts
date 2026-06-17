@@ -43,7 +43,7 @@ export async function releaseEscrowToBuyer(tradeId: string) {
       throw new Error(`Trade not found with ID ${tradeId}`);
     }
 
-    if (trade.status !== 'PAID' && trade.status !== 'OPEN') {
+    if (trade.status !== 'PAID' && trade.status !== 'OPEN' && trade.status !== 'DISPUTED') {
       throw new Error(`Invalid trade status ${trade.status} for escrow release`);
     }
 
