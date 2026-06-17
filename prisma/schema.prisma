@@ -1,0 +1,415 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum KycStatus {
+  PENDING
+  REVIEWING
+  APPROVED
+  REJECTED
+}
+
+enum TradeType {
+  BUY
+  SELL
+}
+
+enum AdStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+enum TradeStatus {
+  OPEN
+  PAID
+  RELEASED
+  DISPUTED
+  CANCELLED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  ESCROW_LOCK
+  ESCROW_RELEASE
+  ESCROW_REFUND
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum PaymentProvider {
+  CBE
+  DASHEN
+  AWASH
+  ABYSSINIA
+  TELEBIRR
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum NotificationType {
+  SYSTEM
+  TRADE
+  WALLET
+  KYC
+  SECURITY
+}
+
+enum Severity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model Profile {
+  id                  String             @id @default(uuid())
+  email               String             @unique
+  username            String             @unique
+  kycStatus           KycStatus          @default(PENDING)
+  kycVerifiedAt       DateTime?
+  twoFactorEnabled    Boolean            @default(false)
+  twoFactorSecret     String?
+  withdrawalPinHash   String?
+  referralCode        String?
+  trustScore          Float              @default(100.0)
+  completedTrades     Int                @default(0)
+  totalTrades         Int                @default(0)
+  positiveRatings     Int                @default(0)
+  negativeRatings     Int                @default(0)
+  averageReleaseTime  Float              @default(0.0) // In seconds
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  deletedAt           DateTime?
+
+  wallets             Wallet[]
+  paymentMethods      PaymentMethod[]
+  advertisements      Advertisement[]
+  tradesAsBuyer       Trade[]            @relation("BuyerTrades")
+  tradesAsSeller      Trade[]            @relation("SellerTrades")
+  tradeMessages       TradeMessage[]
+  tradeEvidence       TradeEvidence[]
+  disputesInitiated   Dispute[]          @relation("InitiatedDisputes")
+  kycVerifications    KycVerification[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  adminActions        AdminAction[]      @relation("AdminActionUser")
+  securityEvents      SecurityEvent[]
+  sessions            Session[]
+
+  @@index([email])
+  @@index([username])
+}
+
+model Wallet {
+  id                String             @id @default(uuid())
+  profileId         String
+  profile           Profile            @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  availableBalance  Decimal            @default(0.00) @db.Decimal(20, 8)
+  frozenBalance     Decimal            @default(0.00) @db.Decimal(20, 8)
+  escrowBalance     Decimal            @default(0.00) @db.Decimal(20, 8)
+  totalBalance      Decimal            @default(0.00) @db.Decimal(20, 8)
+  currency          String             @default("USDT")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  addresses         WalletAddress[]
+  transactions      Transaction[]
+
+  @@index([profileId])
+}
+
+model WalletAddress {
+  id         String   @id @default(uuid())
+  walletId   String
+  wallet     Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  chain      String   @default("TRON") // TRC20
+  address    String   @unique
+  memo       String?
+  qrCodeUrl  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([walletId])
+  @@index([address])
+}
+
+model Transaction {
+  id             String            @id @default(uuid())
+  walletId       String
+  wallet         Wallet            @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount         Decimal           @db.Decimal(20, 8)
+  type           TransactionType
+  status         TransactionStatus @default(PENDING)
+  txHash         String?           @unique
+  fee            Decimal           @default(0.00) @db.Decimal(20, 8)
+  confirmations  Int               @default(0)
+  description    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([walletId])
+  @@index([type])
+  @@index([status])
+}
+
+model Deposit {
+  id             String            @id @default(uuid())
+  walletId       String
+  amount         Decimal           @db.Decimal(20, 8)
+  address        String
+  txHash         String            @unique
+  confirmations  Int               @default(0)
+  status         TransactionStatus @default(PENDING)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([walletId])
+  @@index([txHash])
+}
+
+model Withdrawal {
+  id                 String            @id @default(uuid())
+  walletId           String
+  amount             Decimal           @db.Decimal(20, 8)
+  destinationAddress String
+  txHash             String?           @unique
+  status             TradeStatus       @default(OPEN) // Managed state (PENDING, APPROVED, REJECTED, COMPLETED)
+  approvedByAdminId  String?
+  rejectedReason     String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([walletId])
+}
+
+model PaymentMethod {
+  id         String          @id @default(uuid())
+  profileId  String
+  profile    Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  provider   PaymentProvider
+  details    Json            // e.g. { "accountName": "...", "accountNumber": "..." }
+  status     Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([profileId])
+}
+
+model Advertisement {
+  id             String          @id @default(uuid())
+  profileId      String
+  profile        Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  tradeType      TradeType
+  price          Decimal         @db.Decimal(20, 2) // Price in ETB per USDT
+  amount         Decimal         @db.Decimal(20, 8)
+  remainingAmount Decimal        @db.Decimal(20, 8)
+  minOrder       Decimal         @db.Decimal(20, 2) // Min ETB per transaction
+  maxOrder       Decimal         @db.Decimal(20, 2) // Max ETB per transaction
+  paymentMethods Json            // Array of PaymentProvider
+  terms          String?         @db.Text
+  status         AdStatus        @default(ACTIVE)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+
+  trades         Trade[]
+
+  @@index([profileId])
+  @@index([tradeType])
+  @@index([status])
+}
+
+model Trade {
+  id               String        @id @default(uuid())
+  adId             String
+  advertisement    Advertisement @relation(fields: [adId], references: [id], onDelete: Cascade)
+  buyerId          String
+  buyer            Profile       @relation("BuyerTrades", fields: [buyerId], references: [id])
+  sellerId         String
+  seller           Profile       @relation("SellerTrades", fields: [sellerId], references: [id])
+  amount           Decimal       @db.Decimal(20, 8) // USDT amount
+  price            Decimal       @db.Decimal(20, 2) // ETB rate
+  fiatAmount       Decimal       @db.Decimal(20, 2) // Total ETB
+  escrowStatus     String        @default("LOCKED")
+  status           TradeStatus   @default(OPEN)
+  paymentMethodId  String
+  paymentDetails   Json
+  buyerPaidAt      DateTime?
+  releasedAt       DateTime?
+  disputedAt       DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  messages         TradeMessage[]
+  evidence         TradeEvidence[]
+  disputes         Dispute[]
+
+  @@index([adId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+}
+
+model TradeMessage {
+  id        String   @id @default(uuid())
+  tradeId   String
+  trade     Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  senderId  String?
+  sender    Profile? @relation(fields: [senderId], references: [id])
+  content   String   @db.Text
+  isSystem  Boolean  @default(false)
+  fileUrl   String?
+  fileType  String?
+  createdAt DateTime @default(now())
+
+  @@index([tradeId])
+}
+
+model TradeEvidence {
+  id          String   @id @default(uuid())
+  tradeId     String
+  trade       Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  disputeId   String?
+  dispute     Dispute? @relation(fields: [disputeId], references: [id])
+  submitterId String
+  submitter   Profile  @relation(fields: [submitterId], references: [id])
+  fileUrl     String
+  fileType    String
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([tradeId])
+}
+
+model Dispute {
+  id                 String        @id @default(uuid())
+  tradeId            String
+  trade              Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  initiatorId        String
+  initiator          Profile       @relation("InitiatedDisputes", fields: [initiatorId], references: [id])
+  reason             String
+  description        String        @db.Text
+  status             DisputeStatus @default(OPEN)
+  resolutionNotes    String?       @db.Text
+  resolvedByAdminId  String?
+  resolvedAt         DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  evidence           TradeEvidence[]
+
+  @@index([tradeId])
+  @@index([status])
+}
+
+model KycVerification {
+  id               String    @id @default(uuid())
+  profileId        String
+  profile          Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  provider         String    @default("SUMSUB")
+  referenceId      String    @unique
+  level            String    @default("DEFAULT")
+  status           KycStatus @default(PENDING)
+  rejectionReason  String?
+  idFrontUrl       String?
+  idBackUrl        String?
+  selfieUrl        String?
+  livenessData     Json?
+  amlCleared       Boolean   @default(false)
+  sanctionsCleared Boolean   @default(false)
+  rawResponse      Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([profileId])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  profileId String
+  profile   Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  title     String
+  content   String           @db.Text
+  type      NotificationType @default(SYSTEM)
+  read      Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+
+  @@index([profileId])
+  @@index([read])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  adminId    String?
+  profile    Profile? @relation(fields: [adminId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  ipAddress  String?
+  userAgent  String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([adminId])
+}
+
+model AdminAction {
+  id           String   @id @default(uuid())
+  adminId      String
+  admin        Profile  @relation("AdminActionUser", fields: [adminId], references: [id], onDelete: Cascade)
+  actionType   String
+  details      Json?
+  createdAt    DateTime @default(now())
+
+  @@index([adminId])
+}
+
+model SecurityEvent {
+  id                String    @id @default(uuid())
+  profileId         String?
+  profile           Profile?  @relation(fields: [profileId], references: [id])
+  eventType         String
+  severity          Severity  @default(INFO)
+  ipAddress         String?
+  userAgent         String?
+  deviceFingerprint String?
+  details           Json?
+  createdAt         DateTime  @default(now())
+
+  @@index([profileId])
+  @@index([eventType])
+}
+
+model Session {
+  id                String   @id @default(uuid())
+  profileId         String
+  profile           Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  token             String   @unique
+  expiresAt         DateTime
+  ipAddress         String?
+  userAgent         String?
+  deviceFingerprint String?
+  isVerifiedDevice  Boolean  @default(true)
+  isSuspicious      Boolean  @default(false)
+  lastActiveAt      DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  @@index([profileId])
+  @@index([token])
+}
