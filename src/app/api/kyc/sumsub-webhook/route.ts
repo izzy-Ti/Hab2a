@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     });
 
     let kycStatus = "PENDING";
-    let rejectionReason = null;
+    let rejectionReason: string | null = null;
 
     if (type === "applicantReviewed") {
       const reviewAnswer = reviewResult?.reviewAnswer;

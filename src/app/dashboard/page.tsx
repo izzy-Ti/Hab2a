@@ -72,6 +72,10 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) return;
+
       // 1. Fetch wallet
       const walletRes = await fetch("/api/wallet");
       if (walletRes.ok) {
@@ -114,12 +118,11 @@ export default function Dashboard() {
         setHistoryWithdrawals(withData.withdrawals || []);
       }
 
-      // 6. Fetch user's ads (we can filter active ads or query a custom endpoint)
-      // For simplicity, we query /api/ads and filter user's ads
+      // 6. Fetch user's ads
       const adsRes = await fetch("/api/ads");
       if (adsRes.ok) {
         const adsData = await adsRes.json();
-        const myFilteredAds = (adsData.ads || []).filter((ad: any) => ad.profileId === supabase.auth.getUser());
+        const myFilteredAds = (adsData.ads || []).filter((ad: any) => ad.profileId === currentUserId);
         setMyAds(myFilteredAds);
       }
     } catch (err) {

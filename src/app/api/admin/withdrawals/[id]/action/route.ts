@@ -13,7 +13,7 @@ function isAdmin(email?: string): boolean {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient();
@@ -29,7 +29,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid action. Must be APPROVE or REJECT." }, { status: 400 });
     }
 
-    const withdrawalId = params.id;
+    const { id: withdrawalId } = await params;
     const withdrawal = await prisma.withdrawal.findUnique({
       where: { id: withdrawalId },
     });

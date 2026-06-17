@@ -4,14 +4,15 @@ import { prisma } from "@/lib/prisma";
 import { releaseEscrowToBuyer, refundEscrowToSeller } from "@/lib/escrow";
 
 // GET /api/trades/[id] - Get trade details
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id: tradeId } = await params;
     const supabase = await createClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const trade = await prisma.trade.findUnique({
-      where: { id: params.id },
+      where: { id: tradeId },
       include: {
         advertisement: { select: { tradeType: true, paymentMethods: true, terms: true } },
         buyer: { select: { id: true, username: true, trustScore: true, completedTrades: true, totalTrades: true } },
@@ -34,14 +35,15 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 // PATCH /api/trades/[id] - Update trade status (mark paid, release, cancel)
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id: tradeId } = await params;
     const supabase = await createClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { action } = await request.json();
-    const trade = await prisma.trade.findUnique({ where: { id: params.id } });
+    const trade = await prisma.trade.findUnique({ where: { id: tradeId } });
 
     if (!trade) return NextResponse.json({ error: "Trade not found" }, { status: 404 });
     if (trade.buyerId !== user.id && trade.sellerId !== user.id) {
@@ -56,7 +58,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       if (trade.status !== "OPEN") return NextResponse.json({ error: "Trade is not in OPEN state" }, { status: 400 });
 
       result = await prisma.trade.update({
-        where: { id: params.id },
+        where: { id: tradeId },
         data: { status: "PAID", buyerPaidAt: new Date() },
       });
 
@@ -72,7 +74,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       if (trade.sellerId !== user.id) return NextResponse.json({ error: "Only seller can release USDT" }, { status: 403 });
       if (trade.status !== "PAID") return NextResponse.json({ error: "Trade must be in PAID state to release" }, { status: 400 });
 
-      result = await releaseEscrowToBuyer(params.id);
+      result = await releaseEscrowToBuyer(tradeId);
 
       await prisma.tradeMessage.create({
         data: {
@@ -96,7 +98,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     } else if (action === "cancel") {
       if (trade.status !== "OPEN") return NextResponse.json({ error: "Only OPEN trades can be cancelled" }, { status: 400 });
 
-      result = await refundEscrowToSeller(params.id);
+      result = await refundEscrowToSeller(tradeId);
 
       await prisma.tradeMessage.create({
         data: {

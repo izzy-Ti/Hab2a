@@ -13,7 +13,7 @@ function isAdmin(email?: string): boolean {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient();
@@ -29,7 +29,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid resolution action" }, { status: 400 });
     }
 
-    const disputeId = params.id;
+    const { id: disputeId } = await params;
     const dispute = await prisma.dispute.findUnique({
       where: { id: disputeId },
       include: { trade: true },

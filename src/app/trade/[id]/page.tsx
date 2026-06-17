@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
 
-export default function TradeRoom({ params }: { params: { id: string } }) {
+export default function TradeRoom({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const tradeId = params.id;
+  const { id: tradeId } = use(params);
 
   const [user, setUser] = useState<any>(null);
   const [trade, setTrade] = useState<any>(null);
